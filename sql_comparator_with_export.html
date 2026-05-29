@@ -1,0 +1,263 @@
+
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+<h2 class="sr-only">SQL result set comparator with export — compare two query outputs and export differences as CSV, JSON, or copy to clipboard</h2>
+
+<style>
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+</style>
+
+<div class="py-4">
+
+  <div class="flex items-center justify-between mb-5">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:var(--color-background-info)">
+        <i class="ti ti-git-compare text-base" style="color:var(--color-text-info)" aria-hidden="true"></i>
+      </div>
+      <div>
+        <p class="text-base font-medium" style="color:var(--color-text-primary);margin:0">SQL result comparator</p>
+        <p class="text-xs" style="color:var(--color-text-secondary);margin:0">Paste two query outputs — compare and export differences</p>
+      </div>
+    </div>
+    <button onclick="loadSample()" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors" style="border-color:var(--color-border-secondary);color:var(--color-text-secondary);background:var(--color-background-primary)" onmouseover="this.style.background='var(--color-background-secondary)'" onmouseout="this.style.background='var(--color-background-primary)'">
+      <i class="ti ti-sparkles text-sm" aria-hidden="true"></i> Load sample
+    </button>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 mb-3">
+    <div class="rounded-xl border overflow-hidden" style="border-color:var(--color-border-tertiary)">
+      <div class="flex items-center gap-2 px-3 py-2 border-b" style="background:var(--color-background-secondary);border-color:var(--color-border-tertiary)">
+        <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+        <span class="text-xs font-medium uppercase tracking-wide" style="color:var(--color-text-secondary)">Result set 1 — original</span>
+      </div>
+      <textarea id="inp1" class="w-full text-xs font-mono p-3 resize-y focus:outline-none" rows="6" style="background:var(--color-background-primary);color:var(--color-text-primary);border:none" placeholder="Paste CSV or tab-separated results…&#10;&#10;ID,Name,Salary&#10;1,Alice,5000&#10;2,Bob,4000"></textarea>
+    </div>
+    <div class="rounded-xl border overflow-hidden" style="border-color:var(--color-border-tertiary)">
+      <div class="flex items-center gap-2 px-3 py-2 border-b" style="background:var(--color-background-secondary);border-color:var(--color-border-tertiary)">
+        <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+        <span class="text-xs font-medium uppercase tracking-wide" style="color:var(--color-text-secondary)">Result set 2 — compare</span>
+      </div>
+      <textarea id="inp2" class="w-full text-xs font-mono p-3 resize-y focus:outline-none" rows="6" style="background:var(--color-background-primary);color:var(--color-text-primary);border:none" placeholder="Paste CSV or tab-separated results…&#10;&#10;ID,Name,Salary&#10;1,Alice,5500&#10;3,Carol,4800"></textarea>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-2 mb-4 flex-wrap">
+    <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs" style="border-color:var(--color-border-tertiary);background:var(--color-background-secondary)">
+      <i class="ti ti-separator text-sm" style="color:var(--color-text-secondary)" aria-hidden="true"></i>
+      <label style="color:var(--color-text-secondary)" for="sep">Separator</label>
+      <select id="sep" class="text-xs focus:outline-none" style="background:transparent;color:var(--color-text-primary);border:none">
+        <option value="auto">Auto-detect</option>
+        <option value=",">Comma</option>
+        <option value="	">Tab</option>
+        <option value="|">Pipe</option>
+        <option value=";">Semicolon</option>
+      </select>
+    </div>
+    <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs" style="border-color:var(--color-border-tertiary);background:var(--color-background-secondary)">
+      <i class="ti ti-key text-sm" style="color:var(--color-text-secondary)" aria-hidden="true"></i>
+      <label style="color:var(--color-text-secondary)" for="keyCol">Key column</label>
+      <input id="keyCol" type="text" placeholder="e.g. ID" class="w-24 text-xs focus:outline-none" style="background:transparent;color:var(--color-text-primary);border:none">
+    </div>
+    <button onclick="runCompare()" class="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style="background:var(--color-text-primary);color:var(--color-background-primary)" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+      <i class="ti ti-git-compare text-sm" aria-hidden="true"></i> Compare
+    </button>
+    <button onclick="clearAll()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors" style="border-color:var(--color-border-secondary);color:var(--color-text-secondary);background:var(--color-background-primary)" onmouseover="this.style.background='var(--color-background-secondary)'" onmouseout="this.style.background='var(--color-background-primary)'">
+      <i class="ti ti-trash text-sm" aria-hidden="true"></i> Clear
+    </button>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script>
+let lastDiffs=[];let lastCommonCols=[];let lastKeyCol='';let lastAddedCols=[];let lastRemovedCols=[];
+
+function detectSep(t){const l=(t.split('\n')[0]||'');const c={',':(l.match(/,/g)||[]).length,'\t':(l.match(/\t/g)||[]).length,'|':(l.match(/\|/g)||[]).length,';':(l.match(/;/g)||[]).length};return Object.entries(c).sort((a,b)=>b[1]-a[1])[0][0]}
+function parseData(text,sep){const lines=text.trim().split('\n').filter(l=>l.trim());if(!lines.length)return{headers:[],rows:[]};const headers=lines[0].split(sep).map(h=>h.trim().replace(/^"|"$/g,''));const rows=lines.slice(1).map(l=>{const v=l.split(sep).map(x=>x.trim().replace(/^"|"$/g,''));const o={};headers.forEach((h,i)=>o[h]=v[i]??'');return o});return{headers,rows}}
+
+function runCompare(){
+  const t1=document.getElementById('inp1').value.trim();
+  const t2=document.getElementById('inp2').value.trim();
+  if(!t1||!t2){document.getElementById('results').innerHTML=`<div class="flex items-center gap-2 p-4 rounded-xl border text-sm" style="border-color:var(--color-border-tertiary);background:var(--color-background-secondary);color:var(--color-text-secondary)"><i class="ti ti-alert-circle text-base" aria-hidden="true"></i>Paste data into both panels first.</div>`;return}
+  const sv=document.getElementById('sep').value;
+  const sep=sv==='auto'?detectSep(t1):sv==='\t'?'\t':sv;
+  const {headers:h1,rows:r1}=parseData(t1,sep);
+  const {headers:h2,rows:r2}=parseData(t2,sep);
+  const keyCol=document.getElementById('keyCol').value.trim();
+  const addedCols=h2.filter(h=>!h1.includes(h));
+  const removedCols=h1.filter(h=>!h2.includes(h));
+  const commonCols=h1.filter(h=>h2.includes(h));
+  let diffs=[];
+  if(keyCol&&h1.includes(keyCol)&&h2.includes(keyCol)){
+    const m1={},m2={};r1.forEach(r=>m1[r[keyCol]]=r);r2.forEach(r=>m2[r[keyCol]]=r);
+    const k1=new Set(Object.keys(m1)),k2=new Set(Object.keys(m2));
+    k2.forEach(k=>{if(!k1.has(k))diffs.push({type:'added',key:k,row:m2[k]})});
+    k1.forEach(k=>{if(!k2.has(k))diffs.push({type:'removed',key:k,row:m1[k]})});
+    k1.forEach(k=>{if(!k2.has(k))return;const ch={};commonCols.forEach(c=>{if(c!==keyCol&&m1[k][c]!==m2[k][c])ch[c]={old:m1[k][c],new:m2[k][c]}});if(Object.keys(ch).length)diffs.push({type:'changed',key:k,row:m2[k],changes:ch,oldRow:m1[k]})});
+  } else {
+    const len=Math.max(r1.length,r2.length);
+    for(let i=0;i<len;i++){
+      if(i>=r1.length){diffs.push({type:'added',key:'row '+(i+2),row:r2[i]});continue}
+      if(i>=r2.length){diffs.push({type:'removed',key:'row '+(i+2),row:r1[i]});continue}
+      const ch={};commonCols.forEach(c=>{if(r1[i][c]!==r2[i][c])ch[c]={old:r1[i][c],new:r2[i][c]}});
+      if(Object.keys(ch).length)diffs.push({type:'changed',key:'row '+(i+2),row:r2[i],changes:ch,oldRow:r1[i]});
+    }
+  }
+  lastDiffs=diffs;lastCommonCols=commonCols;lastKeyCol=keyCol;lastAddedCols=addedCols;lastRemovedCols=removedCols;
+
+  const nA=diffs.filter(d=>d.type==='added').length;
+  const nR=diffs.filter(d=>d.type==='removed').length;
+  const nC=diffs.filter(d=>d.type==='changed').length;
+  const nS=Math.max(0,Math.min(r1.length,r2.length)-nC);
+
+  const statCard=(val,lbl,bg,tc)=>`<div class="rounded-xl p-3 text-center" style="background:${bg}"><div class="text-2xl font-medium" style="color:${tc}">${val}</div><div class="text-xs mt-0.5" style="color:${tc};opacity:.7">${lbl}</div></div>`;
+
+  let html=`<div class="grid grid-cols-4 gap-2 mb-4">
+    ${statCard(nA,'Added rows','#eaf3de','#27500a')}
+    ${statCard(nR,'Removed rows','#fcebeb','#791f1f')}
+    ${statCard(nC,'Changed rows','#faeeda','#633806')}
+    ${statCard(nS,'Identical rows','var(--color-background-secondary)','var(--color-text-secondary)')}
+  </div>`;
+
+  if(addedCols.length||removedCols.length){
+    html+=`<div class="flex flex-wrap gap-2 p-3 rounded-xl border mb-4 text-xs" style="border-color:var(--color-border-tertiary);background:var(--color-background-secondary)">`;
+    addedCols.forEach(c=>html+=`<span class="flex items-center gap-1 px-2 py-0.5 rounded-md" style="background:#eaf3de;color:#27500a"><i class="ti ti-plus text-xs" aria-hidden="true"></i>${c}</span>`);
+    removedCols.forEach(c=>html+=`<span class="flex items-center gap-1 px-2 py-0.5 rounded-md" style="background:#fcebeb;color:#791f1f"><i class="ti ti-minus text-xs" aria-hidden="true"></i>${c}</span>`);
+    html+=`</div>`;
+  }
+
+  if(!diffs.length){
+    html+=`<div class="flex flex-col items-center gap-2 py-8 rounded-xl" style="background:var(--color-background-secondary)"><i class="ti ti-circle-check text-2xl" style="color:#3b6d11" aria-hidden="true"></i><p class="text-sm font-medium" style="color:#27500a;margin:0">Result sets are identical</p><p class="text-xs" style="color:var(--color-text-secondary);margin:0">No differences found.</p></div>`;
+  } else {
+    html+=`<div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs" style="color:var(--color-text-secondary)">Filter:</span>
+        <button onclick="filterRows('all')" data-f="all" class="fbtn px-3 py-1 rounded-lg border text-xs" style="border-color:var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);font-weight:500;outline:1.5px solid var(--color-border-primary)">All (${diffs.length})</button>
+        <button onclick="filterRows('added')" data-f="added" class="fbtn px-3 py-1 rounded-lg border text-xs" style="border-color:#c0dd97;background:#eaf3de;color:#27500a">Added (${nA})</button>
+        <button onclick="filterRows('removed')" data-f="removed" class="fbtn px-3 py-1 rounded-lg border text-xs" style="border-color:#f7c1c1;background:#fcebeb;color:#791f1f">Removed (${nR})</button>
+        <button onclick="filterRows('changed')" data-f="changed" class="fbtn px-3 py-1 rounded-lg border text-xs" style="border-color:#fac775;background:#faeeda;color:#633806">Changed (${nC})</button>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs" style="color:var(--color-text-secondary)">Export:</span>
+        <button onclick="exportCSV()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors" style="border-color:var(--color-border-secondary);color:var(--color-text-primary);background:var(--color-background-primary)" onmouseover="this.style.background='var(--color-background-secondary)'" onmouseout="this.style.background='var(--color-background-primary)'">
+          <i class="ti ti-file-type-csv text-sm" aria-hidden="true"></i> CSV
+        </button>
+        <button onclick="exportJSON()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors" style="border-color:var(--color-border-secondary);color:var(--color-text-primary);background:var(--color-background-primary)" onmouseover="this.style.background='var(--color-background-secondary)'" onmouseout="this.style.background='var(--color-background-primary)'">
+          <i class="ti ti-braces text-sm" aria-hidden="true"></i> JSON
+        </button>
+        <button onclick="copySummary()" id="copyBtn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors" style="border-color:var(--color-border-secondary);color:var(--color-text-primary);background:var(--color-background-primary)" onmouseover="this.style.background='var(--color-background-secondary)'" onmouseout="this.style.background='var(--color-background-primary)'">
+          <i class="ti ti-clipboard text-sm" aria-hidden="true"></i> Copy
+        </button>
+      </div>
+    </div>`;
+
+    html+=`<div class="rounded-xl border overflow-x-auto" style="border-color:var(--color-border-tertiary)"><table id="diffTable" style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:var(--color-background-secondary)">
+        <th class="px-3 py-2 text-left font-medium text-xs" style="color:var(--color-text-secondary);border-bottom:0.5px solid var(--color-border-tertiary);white-space:nowrap">Status</th>
+        <th class="px-3 py-2 text-left font-medium text-xs" style="color:var(--color-text-secondary);border-bottom:0.5px solid var(--color-border-tertiary);white-space:nowrap">${keyCol||'Row'}</th>`;
+    commonCols.filter(c=>c!==keyCol).forEach(c=>{html+=`<th class="px-3 py-2 text-left font-medium text-xs" style="color:var(--color-text-secondary);border-bottom:0.5px solid var(--color-border-tertiary);white-space:nowrap">${c}</th>`});
+    addedCols.forEach(c=>{html+=`<th class="px-3 py-2 text-left font-medium text-xs" style="color:#27500a;border-bottom:0.5px solid var(--color-border-tertiary);white-space:nowrap">${c} <span style="background:#eaf3de;padding:1px 5px;border-radius:4px;font-size:10px">new</span></th>`});
+    html+=`</tr></thead><tbody>`;
+
+    const badge={
+      added:`<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium" style="background:#eaf3de;color:#27500a"><i class="ti ti-plus" style="font-size:10px" aria-hidden="true"></i>added</span>`,
+      removed:`<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium" style="background:#fcebeb;color:#791f1f"><i class="ti ti-minus" style="font-size:10px" aria-hidden="true"></i>removed</span>`,
+      changed:`<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium" style="background:#faeeda;color:#633806"><i class="ti ti-refresh" style="font-size:10px" aria-hidden="true"></i>changed</span>`
+    };
+    const rowBg={added:'#eaf3de22',removed:'#fcebeb22',changed:'#faeeda22'};
+
+    diffs.forEach(d=>{
+      html+=`<tr data-type="${d.type}" style="background:${rowBg[d.type]};border-bottom:0.5px solid var(--color-border-tertiary)">`;
+      html+=`<td class="px-3 py-2">${badge[d.type]}</td><td class="px-3 py-2 font-mono text-xs" style="color:var(--color-text-primary)">${d.key}</td>`;
+      commonCols.filter(c=>c!==keyCol).forEach(c=>{
+        if(d.type==='changed'&&d.changes?.[c]){
+          html+=`<td class="px-3 py-2"><div class="flex flex-col gap-0.5"><span class="line-through text-xs font-mono" style="color:#a32d2d">${d.changes[c].old||'(empty)'}</span><span class="text-xs font-mono font-medium" style="color:#27500a">${d.changes[c].new||'(empty)'}</span></div></td>`;
+        } else {
+          html+=`<td class="px-3 py-2 font-mono text-xs" style="color:var(--color-text-primary)">${d.row?.[c]??''}</td>`;
+        }
+      });
+      addedCols.forEach(c=>html+=`<td class="px-3 py-2 font-mono text-xs" style="color:var(--color-text-primary)">${d.row?.[c]??''}</td>`);
+      html+=`</tr>`;
+    });
+    html+=`</tbody></table></div>`;
+
+    html+=`<div id="exportToast" class="mt-3 hidden flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium" style="background:#eaf3de;color:#27500a"><i class="ti ti-circle-check text-sm" aria-hidden="true"></i><span id="toastMsg"></span></div>`;
+  }
+
+  document.getElementById('results').innerHTML=html;
+}
+
+function filterRows(type){
+  document.querySelectorAll('#diffTable tbody tr').forEach(tr=>{tr.style.display=(type==='all'||tr.dataset.type===type)?'':'none'});
+  document.querySelectorAll('.fbtn').forEach(b=>{b.style.fontWeight=b.dataset.f===type?'500':'400';b.style.outline=b.dataset.f===type?'1.5px solid var(--color-border-primary)':'none'});
+}
+
+function buildFlatRows(){
+  const keyLabel=lastKeyCol||'row';
+  const cols=[keyLabel,'change_type',...lastCommonCols.filter(c=>c!==lastKeyCol),...lastAddedCols];
+  const rows=lastDiffs.map(d=>{
+    const row={[keyLabel]:d.key,change_type:d.type};
+    lastCommonCols.filter(c=>c!==lastKeyCol).forEach(c=>{
+      if(d.type==='changed'&&d.changes?.[c]){
+        row[c+'_old']=d.changes[c].old;
+        row[c+'_new']=d.changes[c].new;
+      } else {
+        row[c]=d.row?.[c]??'';
+      }
+    });
+    lastAddedCols.forEach(c=>row[c]=d.row?.[c]??'');
+    return row;
+  });
+  return{cols,rows};
+}
+
+function exportCSV(){
+  const{rows}=buildFlatRows();
+  const allKeys=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+  const lines=[allKeys.join(','),...rows.map(r=>allKeys.map(k=>{const v=String(r[k]??'');return v.includes(',')||v.includes('"')?`"${v.replace(/"/g,'""')}"`  :v}).join(','))];
+  download('diff_report.csv',lines.join('\n'),'text/csv');
+  showToast('CSV downloaded — diff_report.csv');
+}
+
+function exportJSON(){
+  const{rows}=buildFlatRows();
+  const out=JSON.stringify({summary:{added:lastDiffs.filter(d=>d.type==='added').length,removed:lastDiffs.filter(d=>d.type==='removed').length,changed:lastDiffs.filter(d=>d.type==='changed').length,added_columns:lastAddedCols,removed_columns:lastRemovedCols},differences:rows},null,2);
+  download('diff_report.json',out,'application/json');
+  showToast('JSON downloaded — diff_report.json');
+}
+
+function copySummary(){
+  const nA=lastDiffs.filter(d=>d.type==='added').length;
+  const nR=lastDiffs.filter(d=>d.type==='removed').length;
+  const nC=lastDiffs.filter(d=>d.type==='changed').length;
+  const{rows}=buildFlatRows();
+  const allKeys=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+  const lines=[`Diff summary — ${new Date().toLocaleString()}`,`Added: ${nA}  Removed: ${nR}  Changed: ${nC}`,'',...[allKeys.join('\t'),...rows.map(r=>allKeys.map(k=>r[k]??'').join('\t'))]];
+  navigator.clipboard.writeText(lines.join('\n')).then(()=>showToast('Copied to clipboard — paste into Excel or Notepad++')).catch(()=>showToast('Copy failed — try CSV export instead'));
+}
+
+function download(name,content,mime){
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:mime}));a.download=name;a.click();URL.revokeObjectURL(a.href);
+}
+
+function showToast(msg){
+  const t=document.getElementById('exportToast');const m=document.getElementById('toastMsg');
+  if(!t||!m)return;m.textContent=msg;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),3000);
+}
+
+function loadSample(){
+  document.getElementById('inp1').value=`ID,Name,Department,Salary\n1,Alice,Engineering,5000\n2,Bob,Marketing,4000\n3,Carol,Engineering,5500\n5,Eve,HR,3800`;
+  document.getElementById('inp2').value=`ID,Name,Department,Salary\n1,Alice,Engineering,5500\n2,Bob,Sales,4000\n4,Dave,Marketing,4200\n5,Eve,HR,3800`;
+  document.getElementById('keyCol').value='ID';
+  document.getElementById('sep').value='auto';
+  runCompare();
+}
+
+function clearAll(){
+  document.getElementById('inp1').value='';
+  document.getElementById('inp2').value='';
+  document.getElementById('keyCol').value='';
+  document.getElementById('results').innerHTML='';
+  lastDiffs=[];
+}
+</script>
