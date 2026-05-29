@@ -1,4 +1,4 @@
-# SQL/CSV Result Comparator (sql-csv-diff)
+# SQL/CSV Result Comparator
 
 A lightweight, developer-focused data validation tool designed to quickly cross-check, align, and compare datasets. 
 It is built specifically for quickly verifying database query results against standalone CSV datasets, making it an ideal companion for automated regression checks.
