@@ -10,6 +10,6 @@ It is built specifically for quickly verifying database query results against st
 *   **Row-by-Row Diffing:** Highlights exact structural and value mismatches down to the specific cell, row, or data type discrepancy.
 *   **Fast & Light:** Optimized to process large tabular data structures in memory without heavy database overhead.
 
-## 📦 Installation
+## 📦 No Installation!!
 
-No Installation
+
